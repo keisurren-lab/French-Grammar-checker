@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Correcteur — French Grammar Checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #2B2320; --ink-soft: #7A6F66;
+    --paper: #FBF7F1; --line: #E6DFD3;
+    --card: #FFFFFF; --plum: #7D4F60; --plum-soft: #F1E4E9;
+    --good: #4F6B57;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    display: flex; justify-content: center;
+    padding: 48px 20px 60px;
+  }
+  .wrap { width: 100%; max-width: 680px; }
+  .eyebrow { color: var(--plum); font-size: 13px; margin-bottom: 6px; }
+  h1 {
+    font-family: 'Newsreader', serif; font-weight: 600; font-style: italic;
+    font-size: 38px; margin: 0 0 8px; line-height: 1.1;
+  }
+  .lede { color: var(--ink-soft); font-size: 15px; margin: 0 0 28px; max-width: 52ch; }
+  textarea {
+    width: 100%; min-height: 140px; resize: vertical;
+    font-family: 'Newsreader', serif; font-size: 18px; line-height: 1.6;
+    color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 16px 18px; outline: none;
+  }
+  textarea:focus { border-color: var(--plum); }
+  .controls { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
+  button#checkBtn {
+    border: none; background: var(--plum); color: var(--card);
+    font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14px;
+    padding: 11px 22px; border-radius: 4px; cursor: pointer;
+  }
+  button#checkBtn:disabled { opacity: 0.55; cursor: default; }
+  .status { font-size: 13px; color: var(--ink-soft); }
+  .results { margin-top: 34px; display: none; }
+  .results.show { display: block; }
+  .block-label { font-size: 12px; letter-spacing: 0.03em; color: var(--ink-soft); margin-bottom: 8px; }
+  .corrected {
+    font-family: 'Newsreader', serif; font-size: 19px; line-height: 1.65;
+    background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+    padding: 18px 20px; margin-bottom: 26px;
+  }
+  ul#issues { list-style: none; margin: 0; padding: 0; }
+  li.issue { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  li.issue:last-child { border-bottom: none; }
+  .issue-flip { font-size: 15px; margin-bottom: 4px; }
+  .was { color: var(--ink-soft); text-decoration: line-through; }
+  .now { color: var(--plum); font-weight: 600; }
+  .why { font-size: 13.5px; color: var(--ink-soft); line-height: 1.5; }
+  .clean-msg { font-size: 15px; color: var(--good); padding: 6px 0 0; }
+  .error-msg { margin-top: 18px; font-size: 14px; color: var(--plum); background: var(--plum-soft); border-radius: 6px; padding: 12px 16px; }
+  footer { margin-top: 40px; font-size: 12px; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Correcteur</div>
+  <h1>Check your French</h1>
+  <p class="lede">Paste a sentence or a short paragraph. It finds grammar, agreement, and spelling issues, and explains each one so you actually learn from it.</p>
+
+  <textarea id="input" placeholder="Écris ta phrase en français ici…"></textarea>
+  <div class="controls">
+    <button id="checkBtn">Check grammar</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <div class="results" id="results">
+    <div class="block-label">Corrected</div>
+    <div class="corrected" id="correctedText"></div>
+    <div class="block-label" id="issuesLabel">What changed</div>
+    <ul id="issues"></ul>
+  </div>
+
+  <div id="errorBox"></div>
+
+  <footer>Powered by the Claude API.</footer>
+</div>
+
+<script>
+(function() {
+  function showError(msg) {
+    const box = document.getElementById('errorBox');
+    box.innerHTML = '<div class="error-msg"></div>';
+    box.querySelector('.error-msg').textContent = msg;
+  }
+  function clearError() {
+    document.getElementById('errorBox').innerHTML = '';
+  }
+
+  function renderResults(data, originalText) {
+    const results = document.getElementById('results');
+    const correctedEl = document.getElementById('correctedText');
+    const issuesEl = document.getElementById('issues');
+    const issuesLabel = document.getElementById('issuesLabel');
+
+    const issues = Array.isArray(data.issues) ? data.issues : [];
+    const corrected = typeof data.corrected === 'string' ? data.corrected : originalText;
+
+    correctedEl.textContent = corrected;
+    issuesEl.innerHTML = '';
+
+    if (issues.length === 0) {
+      issuesLabel.style.display = 'none';
+      issuesEl.innerHTML = '<div class="clean-msg">No issues found — nice work.</div>';
+    } else {
+      issuesLabel.style.display = 'block';
+      issues.forEach(issue => {
+        const li = document.createElement('li');
+        li.className = 'issue';
+        const flip = document.createElement('div');
+        flip.className = 'issue-flip';
+        const was = document.createElement('span');
+        was.className = 'was';
+        was.textContent = issue.original || '';
+        const arrow = document.createTextNode('  →  ');
+        const now = document.createElement('span');
+        now.className = 'now';
+        now.textContent = issue.correction || '';
+        flip.appendChild(was); flip.appendChild(arrow); flip.appendChild(now);
+        const why = document.createElement('div');
+        why.className = 'why';
+        why.textContent = issue.explanation || '';
+        li.appendChild(flip); li.appendChild(why);
+        issuesEl.appendChild(li);
+      });
+    }
+    results.classList.add('show');
+  }
+
+  async function checkGrammar() {
+    const text = document.getElementById('input').value.trim();
+    const statusEl = document.getElementById('status');
+    const btn = document.getElementById('checkBtn');
+    clearError();
+    if (!text) return;
+
+    btn.disabled = true;
+    statusEl.textContent = 'Checking…';
+    document.getElementById('results').classList.remove('show');
+
+    try {
+      const resp = await fetch('/api/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.error || 'Request failed');
+      }
+      statusEl.textContent = '';
+      renderResults(data, text);
+    } catch (err) {
+      statusEl.textContent = '';
+      showError("Couldn't check that text. Try again in a moment.");
+      console.error(err);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('checkBtn').addEventListener('click', checkGrammar);
+  document.getElementById('input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) checkGrammar();
+  });
+})();
+</script>
+</body>
+</html>
